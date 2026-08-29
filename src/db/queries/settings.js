@@ -3,6 +3,14 @@
  */
 import { query, run } from '../index';
 
+export const LICENSE_STATUS = {
+  NOT_ACTIVATED: 'Not Activated',
+  ACTIVATED: 'Activated',
+  INVALID: 'Invalid License',
+  WRONG_DEVICE: 'License belongs to another device',
+  EXPIRED: 'Expired License',
+};
+
 export const SettingsDB = {
   getAll: async () => {
     const rows = await query('SELECT key, value FROM settings', []);
@@ -27,6 +35,28 @@ export const SettingsDB = {
       );
     }
   },
+
+  getLicenseMetadata: async () => {
+    const settings = await SettingsDB.getAll();
+    return {
+      key: settings.license_key ?? '',
+      status: settings.license_status ?? LICENSE_STATUS.NOT_ACTIVATED,
+      deviceId: settings.license_device_id ?? '',
+      expiresAt: settings.license_expires_at ?? '',
+      licenseType: settings.license_type ?? '',
+      licenseId: settings.license_id ?? '',
+    };
+  },
+
+  setLicenseMetadata: (metadata) =>
+    SettingsDB.setMany({
+      license_key: metadata.key ?? '',
+      license_status: metadata.status ?? LICENSE_STATUS.NOT_ACTIVATED,
+      license_device_id: metadata.deviceId ?? '',
+      license_expires_at: metadata.expiresAt ?? '',
+      license_type: metadata.licenseType ?? '',
+      license_id: metadata.licenseId ?? '',
+    }),
 };
 
 export const SecurityDB = {
