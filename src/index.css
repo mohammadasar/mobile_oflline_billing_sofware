@@ -132,7 +132,8 @@ p  { font-size: var(--fs-base); line-height: 1.6; }
 .app-layout {
   display: flex;
   flex-direction: column;
-  height: 100dvh;
+  min-height: 100dvh;
+  max-height: 100dvh;
   overflow: hidden;
 }
 
@@ -297,6 +298,24 @@ p  { font-size: var(--fs-base); line-height: 1.6; }
   color: var(--accent-light);
   letter-spacing: 0.02em;
   transform: translateY(-8px);
+}
+
+/* ─── Keyboard Handling (Android) ────────────────────────────── */
+/* When keyboard is open, hide the bottom nav to prevent overlaps */
+html[data-keyboard-open="true"] .bottom-nav {
+  display: none;
+}
+
+/* Reduce page-content padding when keyboard is open */
+html[data-keyboard-open="true"] .page-content {
+  padding-bottom: calc(var(--space-6) + var(--safe-bottom));
+}
+
+/* Ensure inputs can be focused and scrolled into view */
+input:focus,
+textarea:focus {
+  scroll-margin-top: calc(var(--header-height) + var(--safe-top) + var(--space-4));
+  scroll-margin-bottom: calc(var(--space-4));
 }
 
 /* ─── Cards ──────────────────────────────────────────────────── */
@@ -503,6 +522,12 @@ p  { font-size: var(--fs-base); line-height: 1.6; }
 .settings-summary-list div { display: flex; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) 0; border-bottom: 1px solid var(--border-subtle); }
 .settings-summary-list span { color: var(--text-muted); font-size: var(--fs-sm); }
 .settings-summary-list strong { max-width: 65%; color: var(--text-primary); font-size: var(--fs-sm); text-align: right; overflow-wrap: anywhere; }
+.license-device-info { display: flex; flex-direction: column; gap: var(--space-3); margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border-subtle); color: var(--text-muted); font-size: var(--fs-sm); }
+.license-device-row { display: flex; flex-direction: column; gap: var(--space-2); }
+.license-device-value { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
+.license-device-info strong { color: var(--text-primary); font-weight: 600; overflow-wrap: anywhere; flex: 1; min-width: 0; }
+.license-public-key { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: var(--fs-xs); font-weight: 500; }
+.license-device-value .btn { flex-shrink: 0; white-space: nowrap; }
 
 .product-search {
   display: flex;

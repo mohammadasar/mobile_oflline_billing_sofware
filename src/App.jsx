@@ -3,12 +3,16 @@
  * Root application component with routing, DB initialization, and context providers.
  */
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { Suspense } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 
 import { DbProvider, useDb } from './context/DbContext';
+import { LicenseGateContext } from './context/LicenseGateContext';
 import { SettingsProvider } from './context/SettingsContext';
 
 import BottomNav from './components/Navigation/BottomNav';
+import LicenseActivationPage from './pages/License/LicenseActivationPage';
+import { evaluateStoredLicense } from './license/activation';
+import { isActivatedLicense } from './native/license';
 
 import BillingPage   from './pages/Billing/BillingPage';
 import ProductsPage  from './pages/Products/ProductsPage';
@@ -60,6 +64,65 @@ function ErrorScreen({ message }) {
   );
 }
 
+function LicenseGate({ children }) {
+  const [checking, setChecking] = useState(true);
+  const [licenseState, setLicenseState] = useState(null);
+
+  const refreshLicense = useCallback(async () => {
+    const result = await evaluateStoredLicense();
+    setLicenseState(result);
+    setChecking(false);
+    return result;
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    refreshLicense().catch(() => {
+      if (!cancelled) {
+        setLicenseState({ status: 'Invalid License', valid: false });
+        setChecking(false);
+      }
+    });
+
+    const recheckIfVisible = () => {
+      if (document.visibilityState === 'visible') {
+        refreshLicense().catch(() => {});
+      }
+    };
+
+    // Re-check on app resume without native plugin listeners.
+    // Native notifyListeners/addListener can race Capacitor.triggerEvent on Android startup.
+    document.addEventListener('visibilitychange', recheckIfVisible);
+    window.addEventListener('focus', recheckIfVisible);
+    window.addEventListener('pageshow', recheckIfVisible);
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', recheckIfVisible);
+      window.removeEventListener('focus', recheckIfVisible);
+      window.removeEventListener('pageshow', recheckIfVisible);
+    };
+  }, [refreshLicense]);
+
+  if (checking) return <SplashScreen />;
+
+  const allowed = isActivatedLicense(licenseState);
+
+  return (
+    <LicenseGateContext.Provider value={{ refreshLicense, licenseState }}>
+      {allowed ? children : (
+        <div className="app-layout">
+          <LicenseActivationPage
+            status={licenseState?.status}
+            onActivated={refreshLicense}
+          />
+        </div>
+      )}
+    </LicenseGateContext.Provider>
+  );
+}
+
 // ─── App Shell (rendered after DB is ready) ───────────────────
 function AppShell() {
   const { ready, error } = useDb();
@@ -68,24 +131,26 @@ function AppShell() {
   if (!ready) return <SplashScreen />;
 
   return (
-    <SettingsProvider>
-      <div className="app-layout">
-        <Routes>
-          <Route path="/"           element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard"  element={<DashboardPage />} />
-          <Route path="/billing"    element={<BillingPage />} />
-          <Route path="/products"   element={<ProductsPage />} />
-          <Route path="/customers"  element={<CustomersPage />} />
-          <Route path="/bills"      element={<BillsPage />} />
-          <Route path="/settings"   element={<SettingsPage />} />
-          <Route path="/security"   element={<SecurityPage />} />
-          {/* Catch-all */}
-          <Route path="*"           element={<Navigate to="/dashboard" replace />} />
-        </Routes>
+    <LicenseGate>
+      <SettingsProvider>
+        <div className="app-layout">
+          <Routes>
+            <Route path="/"           element={<Navigate to="/dashboard" replace />} />
+            <Route path="/dashboard"  element={<DashboardPage />} />
+            <Route path="/billing"    element={<BillingPage />} />
+            <Route path="/products"   element={<ProductsPage />} />
+            <Route path="/customers"  element={<CustomersPage />} />
+            <Route path="/bills"      element={<BillsPage />} />
+            <Route path="/settings"   element={<SettingsPage />} />
+            <Route path="/security"   element={<SecurityPage />} />
+            {/* Catch-all */}
+            <Route path="*"           element={<Navigate to="/dashboard" replace />} />
+          </Routes>
 
-        <BottomNav />
-      </div>
-    </SettingsProvider>
+          <BottomNav />
+        </div>
+      </SettingsProvider>
+    </LicenseGate>
   );
 }
 

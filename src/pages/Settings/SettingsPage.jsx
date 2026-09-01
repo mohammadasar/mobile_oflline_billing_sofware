@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { Download, KeyRound, Lock, Printer, Save, ShieldCheck, Store, Upload } from 'lucide-react';
 import PageLayout from '../../components/Layout/PageLayout';
+import { useLicenseGate } from '../../context/LicenseGateContext';
 import { useSettings } from '../../context/SettingsContext';
-import { SecurityDB } from '../../db/queries/settings';
-import { LICENSE_STATUS, SettingsDB } from '../../db/queries/settings';
+import { LICENSE_STATUS, SecurityDB } from '../../db/queries/settings';
 import { exportDb, importDb } from '../../db';
-import { getDeviceIdentity, verifyLicense } from '../../native/license';
+import { activateLicense } from '../../license/activation';
+import { getDeviceIdentity, isActivatedLicense } from '../../native/license';
 
 async function hashPin(pin) {
   const data = new TextEncoder().encode(pin);
@@ -15,6 +16,7 @@ async function hashPin(pin) {
 
 export default function SettingsPage() {
   const { settings, updateSettings, refreshSettings } = useSettings();
+  const { refreshLicense, licenseState } = useLicenseGate();
   const [form, setForm] = useState(settings);
   const [pin, setPin] = useState('');
   const [pinConfirmation, setPinConfirmation] = useState('');
@@ -22,8 +24,10 @@ export default function SettingsPage() {
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isActivating, setIsActivating] = useState(false);
   const [showSavedView, setShowSavedView] = useState(false);
   const [deviceIdentity, setDeviceIdentity] = useState(null);
+  const [liveLicenseStatus, setLiveLicenseStatus] = useState(licenseState?.status || LICENSE_STATUS.NOT_ACTIVATED);
   const restoreInput = useRef(null);
 
   useEffect(() => {
@@ -37,11 +41,14 @@ export default function SettingsPage() {
   useEffect(() => {
     getDeviceIdentity().then((identity) => {
       setDeviceIdentity(identity);
-      if (identity.available && identity.deviceId && settings.license_device_id !== identity.deviceId) {
-        SettingsDB.set('license_device_id', identity.deviceId).catch(() => {});
-      }
     }).catch(() => setDeviceIdentity({ available: false }));
-  }, [settings.license_device_id]);
+  }, []);
+
+  useEffect(() => {
+    if (licenseState?.status) {
+      setLiveLicenseStatus(licenseState.status);
+    }
+  }, [licenseState]);
 
   function updateField(event) {
     const { name, value, type, checked } = event.target;
@@ -54,49 +61,40 @@ export default function SettingsPage() {
     setStatus('');
     setIsSaving(true);
     try {
-      let verificationStatus = LICENSE_STATUS.NOT_ACTIVATED;
-      let expiresAt = '';
-      let verification = null;
-      const normalizedLicense = form.license_key || '';
-
-      if (normalizedLicense) {
-        verification = await verifyLicense(normalizedLicense);
-        verificationStatus = verification?.status || LICENSE_STATUS.NOT_ACTIVATED;
-        expiresAt = verification?.expiresAt || '';
-
-        if (verificationStatus !== LICENSE_STATUS.ACTIVATED) {
-          throw new Error(verificationStatus || 'Invalid License');
-        }
-      }
-
       await updateSettings({
         shop_name: form.shop_name || 'My Shop',
         shop_phone: form.shop_phone || '',
         shop_address: form.shop_address || '',
         printer_paper_size: form.printer_paper_size || '80mm',
         printer_auto_print: form.printer_auto_print ? '1' : '0',
-        license_key: normalizedLicense,
-        license_status: verificationStatus,
-        license_expires_at: expiresAt,
-        license_type: verification?.licenseType || '',
-        license_id: verification?.licenseId || '',
       });
       setStatus('Settings saved locally.');
       setShowSavedView(true);
     } catch (err) {
       setError(err.message ?? 'Could not save settings.');
-      const nextStatus = form.license_key ? (settings.license_status || LICENSE_STATUS.NOT_ACTIVATED) : LICENSE_STATUS.NOT_ACTIVATED;
-      await updateSettings({
-        shop_name: form.shop_name || 'My Shop',
-        shop_phone: form.shop_phone || '',
-        shop_address: form.shop_address || '',
-        printer_paper_size: form.printer_paper_size || '80mm',
-        printer_auto_print: form.printer_auto_print ? '1' : '0',
-        license_key: form.license_key || '',
-        license_status: nextStatus,
-      }).catch(() => {});
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function handleActivateLicense(event) {
+    event.preventDefault();
+    setError('');
+    setStatus('');
+    setIsActivating(true);
+    try {
+      const result = await activateLicense(form.license_key);
+      if (!result.ok) {
+        throw new Error(result.error || LICENSE_STATUS.INVALID);
+      }
+      await refreshSettings();
+      await refreshLicense();
+      setLiveLicenseStatus(result.verification.status);
+      setStatus('License activated.');
+    } catch (err) {
+      setError(err.message ?? LICENSE_STATUS.INVALID);
+    } finally {
+      setIsActivating(false);
     }
   }
 
@@ -155,6 +153,8 @@ export default function SettingsPage() {
       const backup = JSON.parse(await file.text());
       await importDb(backup);
       await refreshSettings();
+      const nativeState = await refreshLicense();
+      setLiveLicenseStatus(nativeState?.status || LICENSE_STATUS.NOT_ACTIVATED);
       setStatus('Backup restored.');
       setError('');
     } catch (err) {
@@ -175,7 +175,7 @@ export default function SettingsPage() {
               <div><span>Address</span><strong>{settings.shop_address || 'Not added'}</strong></div>
               <div><span>Printer</span><strong>{settings.printer_paper_size || '80mm'}{settings.printer_auto_print === '1' ? ' · Auto-print' : ''}</strong></div>
               <div><span>PIN</span><strong>{pinEnabled ? 'Enabled' : 'Disabled'}</strong></div>
-              <div><span>License</span><strong>{settings.license_status || LICENSE_STATUS.NOT_ACTIVATED}</strong></div>
+              <div><span>License</span><strong>{liveLicenseStatus}</strong></div>
             </div>
           </section>
           <button className="btn btn-primary btn-block" type="button" onClick={() => setShowSavedView(false)}><Save size={16} /> Edit Settings</button>
@@ -212,15 +212,20 @@ export default function SettingsPage() {
           <div className="settings-actions"><button type="button" className="btn btn-secondary btn-block" onClick={savePin}><KeyRound size={16} /> {pinEnabled ? 'Change PIN' : 'Enable PIN'}</button>{pinEnabled && <button type="button" className="btn btn-danger btn-block" onClick={disablePin}>Disable</button>}</div>
         </section>
 
-        <section className="settings-section card">
-          <div className="settings-section-heading"><KeyRound size={20} /><div><h2>License</h2><p>{settings.license_status || LICENSE_STATUS.NOT_ACTIVATED}</p></div></div>
-          <label className="form-group"><span className="form-label">License Key</span><input className="form-input" name="license_key" value={form.license_key || ''} onChange={updateField} placeholder="Enter license key" /></label>
-          <div className="license-device-info"><span>Device binding</span><strong>{deviceIdentity?.available ? deviceIdentity.deviceId : 'Available in Android app'}</strong></div>
-        </section>
-
         {error && <div className="form-error" role="alert">{error}</div>}
         {status && <div className="settings-status" role="status">{status}</div>}
         <button className="btn btn-primary btn-block" type="submit" disabled={isSaving}><Save size={16} /> {isSaving ? 'Saving...' : 'Save Settings'}</button>
+      </form>
+
+      <form className="settings-page" onSubmit={handleActivateLicense} style={{ marginTop: '1rem' }}>
+        <section className="settings-section card">
+          <div className="settings-section-heading"><KeyRound size={20} /><div><h2>License</h2><p>{liveLicenseStatus}</p></div></div>
+          <label className="form-group"><span className="form-label">License Key</span><input className="form-input" name="license_key" value={form.license_key || ''} onChange={updateField} placeholder="Enter license key" /></label>
+          <div className="license-device-info"><span>Device binding</span><strong>{deviceIdentity?.available ? deviceIdentity.deviceId : 'Available in Android app'}</strong></div>
+        </section>
+        <button className="btn btn-secondary btn-block" type="submit" disabled={isActivating}>
+          <KeyRound size={16} /> {isActivating ? 'Activating...' : isActivatedLicense(licenseState) ? 'Re-activate License' : 'Activate License'}
+        </button>
       </form>
     </PageLayout>
   );

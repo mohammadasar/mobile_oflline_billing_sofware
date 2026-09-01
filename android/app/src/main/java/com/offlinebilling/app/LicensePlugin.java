@@ -26,7 +26,16 @@ public class LicensePlugin extends Plugin {
     }
 
     @PluginMethod
+    public void getLicenseState(PluginCall call) {
+        resolveVerification(call);
+    }
+
+    @PluginMethod
     public void verifyLicense(PluginCall call) {
+        resolveVerification(call);
+    }
+
+    private void resolveVerification(PluginCall call) {
         try {
             String licenseKey = call.getString("licenseKey", "");
             DeviceIdentityManager.DeviceIdentity identity = identityManager.getOrCreateIdentity();
@@ -41,11 +50,17 @@ public class LicensePlugin extends Plugin {
             response.put("valid", result.isValid());
             response.put("licenseId", result.getLicenseId());
             response.put("shopName", result.getShopName());
-            response.put("expiresAt", result.getExpiresAt());
+            response.put("expiresAt", result.getExpiresAt() == null ? "" : result.getExpiresAt());
             response.put("licenseType", result.getLicenseType());
+            response.put("deviceId", identity.getDeviceId());
             call.resolve(response);
-        } catch (Exception exception) {
-            call.reject("Could not verify the license key", exception);
-        }
+        } 
+        // catch (Exception exception) {
+        //     call.reject("Could not verify the license key", exception);
+        // }
+         catch (Exception exception) {
+    android.util.Log.e("LicensePlugin", "License verification failed", exception);
+    call.reject("Could not verify the license key: " + exception.getMessage(), exception);
+}
     }
 }

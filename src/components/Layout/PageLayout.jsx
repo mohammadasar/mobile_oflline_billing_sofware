@@ -5,7 +5,7 @@
 import { Settings } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 
-export default function PageLayout({ title, subtitle, headerRight, children }) {
+export default function PageLayout({ title, subtitle, headerRight, children, hideSettings = false }) {
   return (
     <>
       <header className="page-header">
@@ -14,14 +14,16 @@ export default function PageLayout({ title, subtitle, headerRight, children }) {
           {subtitle && <div className="page-header-subtitle">{subtitle}</div>}
         </div>
         <div className="page-header-actions">
-          <NavLink
-            to="/settings"
-            className={({ isActive }) => `page-header-settings${isActive ? ' active' : ''}`}
-            aria-label="Settings"
-            title="Settings"
-          >
-            <Settings size={19} />
-          </NavLink>
+          {!hideSettings && (
+            <NavLink
+              to="/settings"
+              className={({ isActive }) => `page-header-settings${isActive ? ' active' : ''}`}
+              aria-label="Settings"
+              title="Settings"
+            >
+              <Settings size={19} />
+            </NavLink>
+          )}
           {headerRight && <div>{headerRight}</div>}
         </div>
       </header>

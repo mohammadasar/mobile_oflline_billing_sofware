@@ -4,6 +4,8 @@ import android.content.Context;
 
 import org.json.JSONObject;
 
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import java.security.Security;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -49,9 +51,12 @@ public final class LicenseVerifier {
                 return new LicenseVerificationResult(STATUS_INVALID, "", "", "", false);
             }
 
-            Signature verifier = Signature.getInstance("Ed25519");
-            verifier.initVerify(developerPublicKey);
-            verifier.update((parts[0] + "." + parts[1]).getBytes(StandardCharsets.US_ASCII));
+            // Signature verifier = Signature.getInstance("Ed25519");
+         BouncyCastleProvider bcProvider = new BouncyCastleProvider();
+
+Signature verifier = Signature.getInstance("Ed25519", bcProvider);
+verifier.initVerify(developerPublicKey);
+verifier.update((parts[0] + "." + parts[1]).getBytes(StandardCharsets.US_ASCII));
             if (!verifier.verify(signatureBytes)) {
                 return new LicenseVerificationResult(STATUS_INVALID, "", "", "", false);
             }
@@ -122,9 +127,12 @@ public final class LicenseVerifier {
                     .collect(Collectors.joining());
 
             byte[] der = decodeBase64(pem);
-            X509EncodedKeySpec keySpec = new X509EncodedKeySpec(der);
-            KeyFactory keyFactory = KeyFactory.getInstance("Ed25519");
-            return keyFactory.generatePublic(keySpec);
+X509EncodedKeySpec keySpec = new X509EncodedKeySpec(der);
+
+BouncyCastleProvider bcProvider = new BouncyCastleProvider();
+KeyFactory keyFactory = KeyFactory.getInstance("Ed25519", bcProvider);
+
+return keyFactory.generatePublic(keySpec);
         }
     }
 
